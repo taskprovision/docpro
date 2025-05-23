@@ -24,6 +24,7 @@ help: ## Show this help message
 	@echo '  - Node-RED:          http://localhost:1880'
 	@echo '  - Elasticsearch:     http://localhost:9200'
 	@echo '  - Tika Server:       http://localhost:9998'
+	@echo '  - OCR API:           http://localhost:${OCR_PORT:-8081}'
 	@echo ''
 
 ## Install project dependencies

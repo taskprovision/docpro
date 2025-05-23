@@ -43,9 +43,10 @@ services:
   ocr:
     build: ./docker/ocr-api
     container_name: doc-ocr
+    hostname: ${OCR_HOST:-ocr}
     restart: unless-stopped
     ports:
-      - "8081:8080"
+      - "${OCR_PORT:-8081}:8080"
     networks:
       - doc-net
 
