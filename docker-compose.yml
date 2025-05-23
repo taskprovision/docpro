@@ -41,7 +41,7 @@ services:
     networks:
       - doc-net
 
-  # OCR Service (Simple Python-based)
+  # OCR Service
   ocr:
     image: jbarlow83/ocrmypdf
     container_name: doc-ocr
@@ -91,10 +91,12 @@ services:
       - "${NODE_RED_PORT:-1880}:1880"
     volumes:
       - ./data/node-red:/data
+      - ./config/node-red/flows.json:/data/flows.json:ro
       - ./data/input:/input
       - ./data/processed:/processed
     environment:
       - TZ=Europe/Warsaw
+      - NODE_RED_CREDENTIAL_SECRET=${NODE_RED_CREDENTIAL_SECRET:-docpro-secret-key}
     depends_on:
       - elasticsearch
       - tika
