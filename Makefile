@@ -1,4 +1,4 @@
-.PHONY: help install start stop restart status logs clean test backup restore
+.PHONY: help install dev stop restart status logs clean test backup restore setup samples docs lint format check-env reset-db monitor open-docs
 
 # Colors
 GREEN  := $(shell tput -Txterm setaf 2)
@@ -7,48 +7,51 @@ WHITE  := $(shell tput -Txterm setaf 7)
 RESET  := $(shell tput -Txterm sgr0)
 
 ## Show this help
-help:
+help: ## Show this help message
+	@echo ''
+	@echo '${YELLOW}Document Processing System${RESET}'
+	@echo '${YELLOW}========================${RESET}'
 	@echo ''
 	@echo 'Usage:'
 	@echo '  ${YELLOW}make${RESET} ${GREEN}<target>${RESET}'
 	@echo ''
 	@echo 'Targets:'
-	@awk '/(^[a-zA-Z\-\_0-9]+:.*?##.*$$)|(^##)/ { \
-		https://www.gnu.org/software/make/manual/html_node/Special-Variables.html#Special-Variables
-		if ($$1 ~ /^[a-z\-]+:.*?##.*$$/) { \
-			printf "  ${YELLOW}%-20s${GREEN}%s${RESET}\n", $$1, $$2 \
-		} else if ($$1 ~ /^## .*$$/) { \
-			printf "${YELLOW}%s${RESET}\n", substr($$1,4) \
-		} \
-	}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z\-\_0-9]+:.*?## / {printf "  ${YELLOW}%-20s${GREEN}%s${RESET}\n", $$1, $$2}' $(MAKEFILE_LIST) | sort
+	@echo ''
+	@echo '${YELLOW}Service URLs:${RESET}'
+	@echo '  - MinIO Console:     http://localhost:9001'
+	@echo '  - Kibana:            http://localhost:5601'
+	@echo '  - Node-RED:          http://localhost:1880'
+	@echo '  - Elasticsearch:     http://localhost:9200'
+	@echo '  - Tika Server:       http://localhost:9998'
+	@echo ''
 
 ## Install project dependencies
-install: .env ## Install project dependencies
+install: check-env ## Install project dependencies and setup environment
 	@echo "${GREEN}🚀 Installing project dependencies...${RESET}"
-	./install.sh
+	@if [ -f "./install.sh" ]; then \
+		chmod +x ./install.sh && \
+		./install.sh; \
+	else \
+		echo "${YELLOW}⚠️  install.sh not found. Running docker-compose up...${RESET}" && \
+		docker-compose up -d --build; \
+	fi
 
 ## Start all services
-dev: .env ## Start all services in development mode
-	@echo "${GREEN}🚀 Starting DocPro in development mode...${RESET}"
-	docker-compose up -d --remove-orphans
-	@echo "${YELLOW}Access services at:${RESET}
-- MinIO: http://localhost:9001 (minioadmin/minioadmin)\n- Elasticsearch: http://localhost:9200\n- Kibana: http://localhost:5601${RESET}"
+dev: check-env ## Start all services in development mode
+	@echo "${GREEN}🚀 Starting Document Processing System...${RESET}"
+	@echo "${YELLOW}Using configuration from .env${RESET}"
+	docker-compose up -d --build --remove-orphans
+	@echo "${GREEN}✅ Services started${RESET}"
+	@$(MAKE) --no-print-directory help | grep -A 10 'Service URLs'
 
 ## Stop all services
 stop: ## Force stop all services and remove containers
-	@echo "${YELLOW}🛑 Force stopping all services...${RESET}"
+	@echo "${YELLOW}🛑 Stopping all services...${RESET}"
 	@if [ -n "$(shell docker-compose ps -q 2>/dev/null)" ]; then \
 		docker-compose down --remove-orphans --timeout 2 || true; \
 	fi
-	@echo "${YELLOW}Killing any remaining processes...${RESET}"
-	@for port in 9001 9200 5601 9998; do \
-		echo "Checking port $$port..."; \
-		pid=$$(lsof -ti :$$port || echo ''); \
-		if [ -n "$$pid" ]; then \
-			echo "Killing process on port $$port (PID: $$pid)"; \
-			kill -9 $$pid 2>/dev/null || true; \
-		done; \
-	done
+	@echo "${GREEN}✅ All services stopped${RESET}"
 
 ## Restart all services
 restart: ## Force restart all services
@@ -69,12 +72,14 @@ logs: ## Show services logs (follow mode)
 
 ## Clean up all containers, networks, and volumes
 clean: ## Force clean up all containers, networks, and volumes
-	@echo "${YELLOW}🧹 Force cleaning up all resources...${RESET}"
+	@echo "${YELLOW}🧹 Cleaning up all resources...${RESET}"
+	@echo "${YELLOW}⚠️  WARNING: This will remove all containers, networks, and volumes. Continue? [y/N] ${RESET}"
+	@read -p "" confirm && [ $$confirm = y ] || [ $$confirm = Y ] || (echo "${YELLOW}Clean cancelled${RESET}"; exit 1)
 	@if [ -n "$(shell docker-compose ps -q 2>/dev/null)" ]; then \
 		docker-compose down -v --remove-orphans --rmi all --timeout 2 || true; \
 	fi
 	@echo "${YELLOW}Removing unused containers, networks, and volumes...${RESET}"
-	@docker system prune -f
+	@docker system prune -af --volumes
 	@echo "${GREEN}✅ Clean complete!${RESET}"
 
 ## Run tests
@@ -120,12 +125,77 @@ restore: ## Restore from the latest backup
 		echo "${YELLOW}Restore script not found at ./scripts/restore.sh${RESET}"; \
 	fi
 
-## Setup environment file if it doesn't exist
-.env:
+## Check if environment is properly set up
+check-env:
 	@if [ ! -f .env ]; then \
 		echo "${YELLOW}⚠️  .env file not found. Creating from .env.example...${RESET}"; \
-		cp .env.example .env; \
+		cp -n .env.example .env 2>/dev/null || true; \
 		echo "${GREEN}✅ .env file created. Please edit it with your configuration.${RESET}"; \
+	fi
+
+## Reset the database (Elasticsearch indices and MinIO data)
+reset-db: check-env ## Reset the database (Elasticsearch and MinIO)
+	@echo "${YELLOW}⚠️  WARNING: This will delete all data. Continue? [y/N] ${RESET}"
+	@read -p "" confirm && [ $$confirm = y ] || [ $$confirm = Y ] || (echo "${YELLOW}Reset cancelled${RESET}"; exit 1)
+	@echo "${YELLOW}🧹 Resetting database...${RESET}"
+	@docker-compose stop elasticsearch minio
+	@rm -rf data/elasticsearch/* data/minio/*
+	@echo "${GREEN}✅ Database reset complete. Run 'make dev' to restart services.${RESET}
+
+## Generate documentation
+docs: ## Generate project documentation
+	@echo "${GREEN}📚 Generating documentation...${RESET}"
+	@if [ ! -d "docs" ]; then \
+		mkdir -p docs; \
+	fi
+	@if [ -f "./scripts/generate-docs.sh" ]; then \
+		./scripts/generate-docs.sh; \
+	else \
+		echo "${YELLOW}Documentation generation script not found${RESET}"; \
+	fi
+
+## Open documentation in browser
+open-docs: ## Open documentation in default browser
+	@if [ -f "docs/index.html" ]; then \
+		xdg-open docs/index.html 2>/dev/null || open docs/index.html 2>/dev/null || \
+		echo "${YELLOW}Could not open documentation. Open 'docs/index.html' manually.${RESET}"; \
+	else \
+		echo "${YELLOW}Documentation not found. Run 'make docs' first.${RESET}"; \
+	fi
+
+## Lint code
+lint: ## Run code linters
+	@echo "${GREEN}🔍 Running linters...${RESET}"
+	@if [ -f "package.json" ]; then \
+		echo "${YELLOW}Running JavaScript/TypeScript linter...${RESET}" && \
+		npm run lint || true; \
+	fi
+	@if [ -f "requirements.txt" ]; then \
+		echo "${YELLOW}Running Python linter...${RESET}" && \
+		pip install -q pylint && pylint **/*.py || true; \
+	fi
+
+## Format code
+format: ## Format code
+	@echo "${GREEN}🎨 Formatting code...${RESET}"
+	@if [ -f "package.json" ]; then \
+		echo "${YELLOW}Formatting JavaScript/TypeScript...${RESET}" && \
+		npm run format || true; \
+	fi
+	@if [ -f "requirements.txt" ]; then \
+		echo "${YELLOW}Formatting Python...${RESET}" && \
+		pip install -q black isort && \
+		black . && isort . || true; \
+	fi
+
+## Monitor system resources
+monitor: ## Monitor system resources (CPU, memory, disk)
+	@echo "${GREEN}📊 Monitoring system resources...${RESET}"
+	@echo "${YELLOW}Press Ctrl+C to exit${RESET}"
+	@if command -v htop &> /dev/null; then \
+		htop; \
+	else \
+		top; \
 	fi
 
 ## Show help by default
