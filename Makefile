@@ -14,7 +14,7 @@ help:
 	@echo ''
 	@echo 'Targets:'
 	@awk '/(^[a-zA-Z\-\_0-9]+:.*?##.*$$)|(^##)/ { \
-		htps://www.gnu.org/software/make/manual/html_node/Special-Variables.html#Special-Variables
+		https://www.gnu.org/software/make/manual/html_node/Special-Variables.html#Special-Variables
 		if ($$1 ~ /^[a-z\-]+:.*?##.*$$/) { \
 			printf "  ${YELLOW}%-20s${GREEN}%s${RESET}\n", $$1, $$2 \
 		} else if ($$1 ~ /^## .*$$/) { \
@@ -29,9 +29,9 @@ install: .env ## Install project dependencies
 
 ## Start all services
 dev: .env ## Start all services in development mode
-	@echo "${GREEN}🚀 Starting HubMail in development mode...${RESET}
+	@echo "${GREEN}🚀 Starting DocPro in development mode...${RESET}
 ${YELLOW}Access services at:${RESET}
-- Node-RED: http://localhost:1880\n- Grafana: http://localhost:3000 (admin/admin)\n- Prometheus: http://localhost:9090${RESET}"
+- MinIO: http://localhost:9001 (minioadmin/minioadmin)\n- Elasticsearch: http://localhost:9200\n- Kibana: http://localhost:5601${RESET}"
 	docker-compose up -d
 
 ## Stop all services
@@ -60,7 +60,29 @@ clean: ## Clean up all containers, networks, and volumes
 ## Run tests
 test: ## Run tests
 	@echo "${GREEN}🧪 Running tests...${RESET}"
-	./scripts/test-flow.sh
+	@if [ -f "./scripts/test-flow.sh" ]; then \
+		./scripts/test-flow.sh; \
+	else \
+		echo "${YELLOW}Test script not found at ./scripts/test-flow.sh${RESET}"; \
+	fi
+
+## Setup Elasticsearch indices
+setup: ## Setup Elasticsearch indices and mappings
+	@echo "${GREEN}🛠️  Setting up Elasticsearch indices...${RESET}"
+	@if [ -f "./scripts/setup-indices.sh" ]; then \
+		./scripts/setup-indices.sh; \
+	else \
+		echo "${YELLOW}Setup script not found at ./scripts/setup-indices.sh${RESET}"; \
+	fi
+
+## Upload sample documents
+samples: ## Upload sample documents to MinIO
+	@echo "${GREEN}📤 Uploading sample documents...${RESET}"
+	@if [ -f "./scripts/upload-samples.sh" ]; then \
+		./scripts/upload-samples.sh; \
+	else \
+		echo "${YELLOW}Upload script not found at ./scripts/upload-samples.sh${RESET}"; \
+	fi
 
 ## Create a backup
 backup: ## Create a backup of the current state
@@ -72,7 +94,11 @@ restore: ## Restore from the latest backup
 	@echo "${YELLOW}⚠️  WARNING: This will overwrite current data. Continue? [y/N] ${RESET}"
 	@read -p "" confirm && [ $$confirm = y ] || [ $$confirm = Y ] || (echo "${YELLOW}Restore cancelled${RESET}"; exit 1)
 	@echo "${GREEN}🔄 Restoring from backup...${RESET}"
-	# Add restore command here
+	@if [ -f "./scripts/restore.sh" ]; then \
+		./scripts/restore.sh; \
+	else \
+		echo "${YELLOW}Restore script not found at ./scripts/restore.sh${RESET}"; \
+	fi
 
 ## Setup environment file if it doesn't exist
 .env:

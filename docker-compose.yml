@@ -1,71 +1,53 @@
+version: '3.8'
 
 services:
-  # Document Search & Analytics
+  # Search Engine
   elasticsearch:
-    image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+    image: elasticsearch:7.17.15
     container_name: doc-elasticsearch
     restart: unless-stopped
     ports:
       - "9200:9200"
-      - "9300:9300"
-    volumes:
-      - ./data/elasticsearch:/usr/share/elasticsearch/data
-      - ./config/elasticsearch/elasticsearch.yml:/usr/share/elasticsearch/config/elasticsearch.yml
     environment:
       - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
       - xpack.security.enabled=false
-      - "ES_JAVA_OPTS=-Xms2g -Xmx2g"
-      - bootstrap.memory_lock=true
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
+    volumes:
+      - ./data/elasticsearch:/usr/share/elasticsearch/data
     networks:
       - doc-net
 
-  # Data Visualization
+  # Analytics Dashboard
   kibana:
-    image: docker.elastic.co/kibana/kibana:8.11.0
+    image: kibana:7.17.15
     container_name: doc-kibana
     restart: unless-stopped
     ports:
       - "5601:5601"
-    volumes:
-      - ./config/kibana/kibana.yml:/usr/share/kibana/config/kibana.yml
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
-      - xpack.security.enabled=false
     depends_on:
       - elasticsearch
     networks:
       - doc-net
 
-  # Document Parsing
+  # Document Parser
   tika:
-    image: apache/tika:2.9.1
+    image: apache/tika:latest-full
     container_name: doc-tika
     restart: unless-stopped
     ports:
       - "9998:9998"
-    volumes:
-      - ./config/tika/tika-config.xml:/etc/tika/tika-config.xml
-      - ./data/tika:/tmp/tika
-    command: ["--config=/etc/tika/tika-config.xml"]
     networks:
       - doc-net
 
-  # OCR Processing
-  tesseract:
-    image: tesseractshadow/tesseract4re
-    container_name: doc-tesseract
+  # OCR Service (Simple Python-based)
+  ocr:
+    image: jbarlow83/ocrmypdf
+    container_name: doc-ocr
     restart: unless-stopped
     ports:
       - "8081:8080"
-    environment:
-      - TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata
-      - OMP_THREAD_LIMIT=2
-    volumes:
-      - ./data/ocr:/tmp/ocr
     networks:
       - doc-net
 
@@ -100,21 +82,19 @@ services:
     networks:
       - doc-net
 
-  # Document Processing Pipeline
-  camel:
-    image: apache/camel:4.2.0
-    container_name: doc-camel
+  # Processing Pipeline
+  node-red:
+    image: nodered/node-red:latest
+    container_name: doc-node-red
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "1880:1880"
     volumes:
-      - ./config/camel:/etc/camel
-      - ./data/input:/data/input
-      - ./data/processed:/data/processed
-      - ./templates:/templates
+      - ./data/node-red:/data
+      - ./data/input:/input
+      - ./data/processed:/processed
     environment:
-      - CAMEL_MAIN_ROUTES_INCLUDE_PATTERN=file:/etc/camel/routes/*.xml
-      - CAMEL_MAIN_PROPERTY_PLACEHOLDER_LOCATION=file:/etc/camel/application.properties
+      - TZ=Europe/Warsaw
     depends_on:
       - elasticsearch
       - tika
@@ -123,42 +103,16 @@ services:
     networks:
       - doc-net
 
-  # Message Queue
-  rabbitmq:
-    image: rabbitmq:3-management
-    container_name: doc-rabbitmq
-    restart: unless-stopped
-    ports:
-      - "5672:5672"
-      - "15672:15672"
-    environment:
-      - RABBITMQ_DEFAULT_USER=admin
-      - RABBITMQ_DEFAULT_PASS=admin123
-    volumes:
-      - ./data/rabbitmq:/var/lib/rabbitmq
-    networks:
-      - doc-net
-
-  # Redis Cache
+  # Cache
   redis:
     image: redis:alpine
     container_name: doc-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
-    volumes:
-      - ./data/redis:/data
     networks:
       - doc-net
 
 networks:
   doc-net:
     driver: bridge
-
-volumes:
-  elasticsearch-data:
-  minio-data:
-  rabbitmq-data:
-  redis-data:
-  tika-data:
-  ollama-data:

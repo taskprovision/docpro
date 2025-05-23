@@ -1,0 +1,315 @@
+[
+    {
+        "id": "doc-processing-tab",
+        "type": "tab",
+        "label": "Document Processing Pipeline",
+        "disabled": false
+    },
+    {
+        "id": "file-watcher",
+        "type": "watch",
+        "z": "doc-processing-tab",
+        "name": "Watch Input Folder",
+        "files": "/data/input",
+        "recursive": true,
+        "x": 140,
+        "y": 100,
+        "wires": [["file-filter"]]
+    },
+    {
+        "id": "file-filter",
+        "type": "switch",
+        "z": "doc-processing-tab",
+        "name": "Filter Documents",
+        "property": "filename",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "regex",
+                "v": "\\.(pdf|docx|png|jpg|jpeg|tiff)$",
+                "vt": "str"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 1,
+        "x": 360,
+        "y": 100,
+        "wires": [["read-file"]]
+    },
+    {
+        "id": "read-file",
+        "type": "file in",
+        "z": "doc-processing-tab",
+        "name": "Read Document",
+        "filename": "",
+        "format": "",
+        "chunk": false,
+        "sendError": false,
+        "encoding": "none",
+        "allProps": false,
+        "x": 560,
+        "y": 100,
+        "wires": [["classify-document"]]
+    },
+    {
+        "id": "classify-document",
+        "type": "function",
+        "z": "doc-processing-tab",
+        "name": "Classify Document Type",
+        "func": "const filename = msg.filename.toLowerCase();\nconst payload = msg.payload;\n\n// Determine document type based on filename\nlet docType = 'UNKNOWN';\nif (filename.includes('cor') || filename.includes('certificate')) {\n    docType = 'COR';\n} else if (filename.includes('invoice') || filename.includes('faktura')) {\n    docType = 'INVOICE';\n} else if (filename.includes('contract') || filename.includes('umowa')) {\n    docType = 'CONTRACT';\n}\n\nmsg.documentType = docType;\nmsg.originalFilename = msg.filename;\nmsg.fileSize = payload.length;\nmsg.processingStartTime = Date.now();\n\nreturn msg;",
+        "outputs": 1,
+        "x": 780,
+        "y": 100,
+        "wires": [["store-original"]]
+    },
+    {
+        "id": "store-original",
+        "type": "http request",
+        "z": "doc-processing-tab",
+        "name": "Store in MinIO",
+        "method": "PUT",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "http://minio:9000/documents/{{originalFilename}}",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "basic",
+        "senderr": false,
+        "headers": [
+            {
+                "keyType": "other",
+                "keyValue": "Authorization",
+                "valueType": "other",
+                "valueValue": "Basic bWluaW9hZG1pbjptaW5pb2FkbWluMTIz"
+            }
+        ],
+        "x": 1000,
+        "y": 100,
+        "wires": [["extract-text"]]
+    },
+    {
+        "id": "extract-text",
+        "type": "http request",
+        "z": "doc-processing-tab",
+        "name": "Extract Text (Tika)",
+        "method": "PUT",
+        "ret": "txt",
+        "paytoqs": "ignore",
+        "url": "http://tika:9998/tika",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "senderr": false,
+        "headers": [
+            {
+                "keyType": "other",
+                "keyValue": "Content-Type",
+                "valueType": "other",
+                "valueValue": "application/octet-stream"
+            }
+        ],
+        "x": 220,
+        "y": 200,
+        "wires": [["analyze-with-llm"]]
+    },
+    {
+        "id": "analyze-with-llm",
+        "type": "function",
+        "z": "doc-processing-tab",
+        "name": "Prepare LLM Analysis",
+        "func": "const extractedText = msg.payload;\nconst docType = msg.documentType;\n\n// Store extracted text\nmsg.extractedText = extractedText;\n\n// Prepare analysis prompt based on document type\nlet prompt = '';\nswitch(docType) {\n    case 'COR':\n        prompt = `Analyze this Certificate of Conformity document. Extract key information:\\n\\n${extractedText}\\n\\nReturn JSON:\\n{\\n  \"certificate_number\": \"\",\\n  \"issuing_authority\": \"\",\\n  \"product_name\": \"\",\\n  \"compliance_status\": \"COMPLIANT|NON_COMPLIANT|UNCLEAR\",\\n  \"validity_start\": \"\",\\n  \"validity_end\": \"\",\\n  \"issues_found\": [],\\n  \"confidence_score\": 0.95\\n}`;\n        break;\n    case 'INVOICE':\n        prompt = `Extract invoice data:\\n\\n${extractedText}\\n\\nReturn JSON:\\n{\\n  \"invoice_number\": \"\",\\n  \"date\": \"\",\\n  \"supplier_name\": \"\",\\n  \"total_amount\": 0.0,\\n  \"currency\": \"\",\\n  \"due_date\": \"\",\\n  \"validation_status\": \"VALID|INVALID\",\\n  \"confidence_score\": 0.95\\n}`;\n        break;\n    case 'CONTRACT':\n        prompt = `Analyze contract for risks:\\n\\n${extractedText}\\n\\nReturn JSON:\\n{\\n  \"contract_type\": \"\",\\n  \"parties\": [],\\n  \"risk_level\": \"LOW|MEDIUM|HIGH\",\\n  \"key_terms\": [],\\n  \"risk_factors\": [],\\n  \"confidence_score\": 0.95\\n}`;\n        break;\n    default:\n        prompt = `Categorize this document:\\n\\n${extractedText}\\n\\nReturn JSON:\\n{\\n  \"category\": \"\",\\n  \"summary\": \"\",\\n  \"confidence_score\": 0.95\\n}`;\n}\n\nmsg.payload = {\n    \"model\": \"llama2:7b\",\n    \"prompt\": prompt,\n    \"stream\": false\n};\n\nreturn msg;",
+        "outputs": 1,
+        "x": 460,
+        "y": 200,
+        "wires": [["call-ollama"]]
+    },
+    {
+        "id": "call-ollama",
+        "type": "http request",
+        "z": "doc-processing-tab",
+        "name": "LLM Analysis",
+        "method": "POST",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "http://ollama:11434/api/generate",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "senderr": false,
+        "headers": [
+            {
+                "keyType": "other",
+                "keyValue": "Content-Type",
+                "valueType": "other",
+                "valueValue": "application/json"
+            }
+        ],
+        "x": 680,
+        "y": 200,
+        "wires": [["parse-analysis"]]
+    },
+    {
+        "id": "parse-analysis",
+        "type": "function",
+        "z": "doc-processing-tab",
+        "name": "Parse Analysis Results",
+        "func": "try {\n    const llmResponse = msg.payload;\n    let analysis = {};\n    \n    // Try to parse JSON from LLM response\n    if (llmResponse.response) {\n        const jsonMatch = llmResponse.response.match(/\\{[^}]+\\}/);\n        if (jsonMatch) {\n            analysis = JSON.parse(jsonMatch[0]);\n        } else {\n            // Fallback\n            analysis = {\n                category: 'UNKNOWN',\n                confidence_score: 0.5,\n                summary: 'Could not parse LLM response'\n            };\n        }\n    }\n    \n    msg.analysis = analysis;\n    msg.processingTime = Date.now() - msg.processingStartTime;\n    \n    return msg;\n    \n} catch (error) {\n    msg.error = error.message;\n    msg.analysis = {\n        category: 'ERROR',\n        confidence_score: 0.0,\n        summary: 'Analysis failed: ' + error.message\n    };\n    return msg;\n}",
+        "outputs": 1,
+        "x": 900,
+        "y": 200,
+        "wires": [["check-alerts"]]
+    },
+    {
+        "id": "check-alerts",
+        "type": "switch",
+        "z": "doc-processing-tab",
+        "name": "Check for Alerts",
+        "property": "analysis",
+        "propertyType": "msg",
+        "rules": [
+            {
+                "t": "jsonata",
+                "v": "analysis.compliance_status = \"NON_COMPLIANT\"",
+                "vt": "jsonata"
+            },
+            {
+                "t": "jsonata",
+                "v": "analysis.total_amount > 10000",
+                "vt": "jsonata"
+            },
+            {
+                "t": "jsonata",
+                "v": "analysis.risk_level = \"HIGH\"",
+                "vt": "jsonata"
+            }
+        ],
+        "checkall": "false",
+        "repair": false,
+        "outputs": 3,
+        "x": 1140,
+        "y": 200,
+        "wires": [
+            ["compliance-alert"],
+            ["high-value-alert"],
+            ["risk-alert"]
+        ]
+    },
+    {
+        "id": "compliance-alert",
+        "type": "function",
+        "z": "doc-processing-tab",
+        "name": "Compliance Alert",
+        "func": "msg.alert = {\n    type: 'COMPLIANCE_ISSUE',\n    severity: 'HIGH',\n    document: msg.originalFilename,\n    message: 'Compliance issues detected',\n    timestamp: new Date().toISOString()\n};\n\nreturn msg;",
+        "outputs": 1,
+        "x": 1360,
+        "y": 160,
+        "wires": [["store-alert"]]
+    },
+    {
+        "id": "high-value-alert",
+        "type": "function",
+        "z": "doc-processing-tab",
+        "name": "High Value Alert",
+        "func": "msg.alert = {\n    type: 'HIGH_VALUE_INVOICE',\n    severity: 'MEDIUM',\n    document: msg.originalFilename,\n    message: 'High-value invoice requires approval',\n    timestamp: new Date().toISOString()\n};\n\nreturn msg;",
+        "outputs": 1,
+        "x": 1360,
+        "y": 200,
+        "wires": [["store-alert"]]
+    },
+    {
+        "id": "risk-alert",
+        "type": "function",
+        "z": "doc-processing-tab",
+        "name": "Risk Alert",
+        "func": "msg.alert = {\n    type: 'CONTRACT_RISK',\n    severity: 'HIGH',\n    document: msg.originalFilename,\n    message: 'High-risk contract detected',\n    timestamp: new Date().toISOString()\n};\n\nreturn msg;",
+        "outputs": 1,
+        "x": 1360,
+        "y": 240,
+        "wires": [["store-alert"]]
+    },
+    {
+        "id": "store-alert",
+        "type": "http request",
+        "z": "doc-processing-tab",
+        "name": "Store Alert in Elasticsearch",
+        "method": "POST",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "http://elasticsearch:9200/compliance-alerts/_doc",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "senderr": false,
+        "headers": [
+            {
+                "keyType": "other",
+                "keyValue": "Content-Type",
+                "valueType": "other",
+                "valueValue": "application/json"
+            }
+        ],
+        "x": 1600,
+        "y": 200,
+        "wires": [["store-document"]]
+    },
+    {
+        "id": "store-document",
+        "type": "function",
+        "z": "doc-processing-tab",
+        "name": "Prepare Document for Storage",
+        "func": "// Prepare document for Elasticsearch storage\nconst docForStorage = {\n    filename: msg.originalFilename,\n    document_type: msg.documentType,\n    processing_timestamp: new Date().toISOString(),\n    extracted_text: msg.extractedText,\n    analysis_results: msg.analysis,\n    file_size: msg.fileSize,\n    processing_time_ms: msg.processingTime\n};\n\nmsg.payload = docForStorage;\nreturn msg;",
+        "outputs": 1,
+        "x": 200,
+        "y": 300,
+        "wires": [["store-in-elasticsearch"]]
+    },
+    {
+        "id": "store-in-elasticsearch",
+        "type": "http request",
+        "z": "doc-processing-tab",
+        "name": "Store in Elasticsearch",
+        "method": "POST",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "http://elasticsearch:9200/documents/_doc",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "authType": "",
+        "senderr": false,
+        "headers": [
+            {
+                "keyType": "other",
+                "keyValue": "Content-Type",
+                "valueType": "other",
+                "valueValue": "application/json"
+            }
+        ],
+        "x": 460,
+        "y": 300,
+        "wires": [["processing-complete"]]
+    },
+    {
+        "id": "processing-complete",
+        "type": "debug",
+        "z": "doc-processing-tab",
+        "name": "Processing Complete",
+        "active": true,
+        "tosidebar": true,
+        "console": false,
+        "tostatus": false,
+        "complete": "true",
+        "targetType": "full",
+        "statusVal": "",
+        "statusType": "auto",
+        "x": 720,
+        "y": 300,
+        "wires": []
+    }
+]

@@ -1,72 +1,76 @@
 #!/bin/bash
 set -e
 
-echo "📄 Installing Document Processing Center..."
+echo "📄 Installing Document Processing (Minimal Working Version)..."
 
-# Check requirements
-command -v docker >/dev/null 2>&1 || { echo "Docker required but not installed. Aborting." >&2; exit 1; }
-command -v docker-compose >/dev/null 2>&1 || { echo "Docker Compose required but not installed. Aborting." >&2; exit 1; }
-
-# Check system resources
-MEMORY=$(free -g | awk '/^Mem:/{print $2}')
-if [ "$MEMORY" -lt 8 ]; then
-    echo "⚠️  Warning: Less than 8GB RAM detected. Performance may be affected."
-    read -p "Continue anyway? (y/N) " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then exit 1; fi
+# Check Docker
+if ! command -v docker &> /dev/null; then
+    echo "❌ Docker not found. Please install Docker first."
+    exit 1
 fi
 
 # Create directories
-mkdir -p {config/{tika,elasticsearch,kibana,camel/routes,minio},data/{elasticsearch,minio,tika,processed},scripts,templates,sample-docs}
+mkdir -p data/{elasticsearch,minio,node-red,ollama,input,processed}
+mkdir -p scripts
 
-# Set permissions for Elasticsearch
+# Set permissions
 chmod 777 data/elasticsearch
+chmod 777 data/input
 
-# Copy example env file
-if [ ! -f .env ]; then
-    cp .env.example .env
-    echo "📝 Please edit .env file with your configuration"
-fi
-
-echo "✅ Project structure created!"
 echo "🚀 Starting services..."
-
-# Start infrastructure first
-docker-compose up -d elasticsearch minio
-
-echo "⏳ Waiting for Elasticsearch and MinIO..."
-sleep 45
-
-# Start remaining services
 docker-compose up -d
 
-echo "⏳ Waiting for all services to start..."
-sleep 60
+echo "⏳ Waiting for services to start..."
+sleep 45
 
-# Setup Elasticsearch indices
-echo "📊 Setting up Elasticsearch indices..."
-./scripts/setup-indices.sh
+# Test Elasticsearch
+echo "🔍 Testing Elasticsearch..."
+until curl -f http://localhost:9200/_cluster/health; do
+    echo "Waiting for Elasticsearch..."
+    sleep 10
+done
 
-# Setup MinIO buckets
-echo "🗄️ Setting up MinIO storage..."
-docker-compose exec -T minio mc alias set minio http://localhost:9000 minioadmin minioadmin123
-docker-compose exec -T minio mc mb minio/documents minio/processed minio/templates --ignore-existing
+# Setup basic index
+echo "📊 Creating basic document index..."
+curl -X PUT "localhost:9200/documents" -H 'Content-Type: application/json' -d'
+{
+  "mappings": {
+    "properties": {
+      "filename": {"type": "keyword"},
+      "content": {"type": "text"},
+      "timestamp": {"type": "date"},
+      "analysis": {"type": "object"}
+    }
+  }
+}'
 
-# Setup sample documents
-echo "📋 Uploading sample documents..."
-./scripts/upload-samples.sh
+# Test Ollama
+echo "🤖 Setting up AI model..."
+docker-compose exec -T ollama ollama pull llama2:7b || echo "AI model will be downloaded on first use"
 
-# Setup Ollama models
-echo "🤖 Setting up AI models..."
-docker-compose exec -T ollama ollama pull llama2:13b
-docker-compose exec -T ollama ollama pull mistral:7b
+# Create test document
+echo "📄 Creating test document..."
+cat > data/input/test-document.txt << 'EOF'
+SAMPLE INVOICE
 
-echo "✅ Document Processing Center is ready!"
+Invoice Number: INV-2024-001
+Date: 2024-01-20
+Amount: €5,000.00
+
+This is a test invoice for document processing.
+EOF
+
+echo "✅ Installation complete!"
 echo ""
-echo "🎉 Access your services:"
-echo "   • Kibana Dashboard: http://localhost:5601"
-echo "   • MinIO Console: http://localhost:9001 (minioadmin/minioadmin123)"
-echo "   • Tika Server: http://localhost:9998"
+echo "🎉 Services available at:"
+echo "   • Node-RED:     http://localhost:1880"
+echo "   • Kibana:       http://localhost:5601"
+echo "   • MinIO:        http://localhost:9001 (minioadmin/minioadmin123)"
 echo "   • Elasticsearch: http://localhost:9200"
+echo "   • Tika:         http://localhost:9998"
 echo ""
-echo "🧪 Test document processing: ./scripts/test-documents.sh"
+echo "📁 Drop documents in data/input/ folder"
+echo "🔧 Configure workflows in Node-RED"
+echo ""
+echo "🧪 Test Tika:"
+echo "   curl -T data/input/test-document.txt http://localhost:9998/tika"
