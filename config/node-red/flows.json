@@ -1,4 +1,3 @@
-
 [
     {
         "id": "doc-processing-tab",
@@ -311,6 +310,54 @@
         "statusType": "auto",
         "x": 720,
         "y": 300,
+        "wires": []
+    },
+    {
+        "id": "http-in",
+        "type": "http in",
+        "name": "Start OCR",
+        "url": "/start-ocr",
+        "method": "post",
+        "upload": true,
+        "swaggerDoc": "",
+        "wires": [["function-prep"]]
+    },
+    {
+        "id": "function-prep",
+        "type": "function",
+        "name": "Prepare OCR Request",
+        "func": "// Assumes msg.req.files[0] is the PDF\nmsg.headers = {};\nmsg.payload = msg.req.files[0].buffer;\nmsg.filename = msg.req.files[0].originalname;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "wires": [["ocr-http"]]
+    },
+    {
+        "id": "ocr-http",
+        "type": "http request",
+        "name": "POST to OCR API",
+        "method": "POST",
+        "ret": "obj",
+        "url": "http://ocr:8080/ocr",
+        "headers": {
+            "Content-Type": "multipart/form-data"
+        },
+        "wires": [["function-handle"]]
+    },
+    {
+        "id": "function-handle",
+        "type": "function",
+        "name": "Handle OCR Result",
+        "func": "// msg.payload.text now contains OCR output\nmsg.ocrText = msg.payload.text || msg.payload.error;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "wires": [["http-response"]]
+    },
+    {
+        "id": "http-response",
+        "type": "http response",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
         "wires": []
     }
 ]
