@@ -1,0 +1,65 @@
+{
+  "template_name": "Contract Risk Analysis Template",
+  "document_type": "Contract/Agreement",
+  "analysis_criteria": {
+    "required_sections": [
+      "parties",
+      "scope_of_work",
+      "financial_terms",
+      "timeline",
+      "termination_clauses",
+      "liability_limitations",
+      "dispute_resolution"
+    ],
+    "risk_assessment": {
+      "financial_risk": {
+        "indicators": [
+          "large_upfront_payments",
+          "no_performance_guarantees",
+          "unlimited_liability",
+          "penalty_clauses"
+        ],
+        "weight": 0.3
+      },
+      "legal_risk": {
+        "indicators": [
+          "unfavorable_jurisdiction",
+          "broad_indemnification",
+          "ip_ownership_transfer",
+          "non_compete_clauses"
+        ],
+        "weight": 0.25
+      },
+      "operational_risk": {
+        "indicators": [
+          "tight_deadlines",
+          "unclear_deliverables",
+          "resource_dependencies",
+          "technology_risks"
+        ],
+        "weight": 0.25
+      },
+      "compliance_risk": {
+        "indicators": [
+          "regulatory_requirements",
+          "data_protection_clauses",
+          "safety_standards",
+          "certification_needs"
+        ],
+        "weight": 0.2
+      }
+    }
+  },
+  "red_flags": [
+    "liability_cap_below_contract_value",
+    "termination_penalty_above_20_percent",
+    "exclusive_supplier_clauses",
+    "automatic_renewal_without_notice",
+    "force_majeure_exclusions"
+  ],
+  "approval_workflow": {
+    "low_risk": ["legal_review_optional"],
+    "medium_risk": ["legal_review_required", "manager_approval"],
+    "high_risk": ["legal_review_mandatory", "director_approval", "board_notification"]
+  }
+}

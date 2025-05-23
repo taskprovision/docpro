@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<properties>
+    <parsers>
+        <parser class="org.apache.tika.parser.DefaultParser">
+            <mime>application/pdf</mime>
+            <mime>application/vnd.openxmlformats-officedocument.wordprocessingml.document</mime>
+            <mime>application/msword</mime>
+            <mime>image/jpeg</mime>
+            <mime>image/png</mime>
+            <mime>image/tiff</mime>
+        </parser>
+
+        <parser class="org.apache.tika.parser.pdf.PDFParser">
+            <params>
+                <param name="extractInlineImages" type="bool">true</param>
+                <param name="ocrStrategy" type="string">OCR_AND_TEXT</param>
+                <param name="enableAutoSpace" type="bool">true</param>
+                <param name="sortByPosition" type="bool">true</param>
+            </params>
+        </parser>
+
+        <parser class="org.apache.tika.parser.microsoft.ooxml.OOXMLParser">
+            <params>
+                <param name="includeDeletedContent" type="bool">false</param>
+                <param name="includeMoveFromContent" type="bool">false</param>
+            </params>
+        </parser>
+    </parsers>
+
+    <detector class="org.apache.tika.detect.DefaultDetector"/>
+
+    <service-loader initializableProblemHandler="ignore"/>
+
+    <!-- OCR Configuration -->
+    <properties>
+        <property name="ocr.timeout">120</property>
+        <property name="ocr.language">eng+pol</property>
+        <property name="ocr.density">300</property>
+    </properties>
+</properties>

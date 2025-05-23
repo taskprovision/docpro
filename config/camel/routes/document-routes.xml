@@ -1,0 +1,329 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<routes xmlns="http://camel.apache.org/schema/spring">
+    
+    <!-- Main Document Processing Route -->
+    <route id="document-ingestion">
+        <from uri="file://data/input?include=.*\.(pdf|docx|png|jpg|jpeg|tiff)&amp;move=processing&amp;moveFailed=failed"/>
+        
+        <log message="Processing document: ${header.CamelFileName}"/>
+        
+        <!-- Store original in MinIO -->
+        <setHeader name="CamelAwsS3Key">
+            <simple>original/${date:now:yyyy/MM/dd}/${header.CamelFileName}</simple>
+        </setHeader>
+        <to uri="aws2-s3://documents?amazonS3Client=#s3Client"/>
+        
+        <!-- Determine document type -->
+        <setHeader name="documentType">
+            <method ref="documentClassifier" method="classifyByFilename"/>
+        </setHeader>
+        
+        <!-- Route to appropriate processor -->
+        <choice>
+            <when>
+                <simple>${header.documentType} == 'COR'</simple>
+                <to uri="direct:process-cor"/>
+            </when>
+            <when>
+                <simple>${header.documentType} == 'INVOICE'</simple>
+                <to uri="direct:process-invoice"/>
+            </when>
+            <when>
+                <simple>${header.documentType} == 'CONTRACT'</simple>
+                <to uri="direct:process-contract"/>
+            </when>
+            <otherwise>
+                <to uri="direct:process-generic"/>
+            </otherwise>
+        </choice>
+    </route>
+    
+    <!-- COR Processing Route -->
+    <route id="cor-processing">
+        <from uri="direct:process-cor"/>
+        
+        <log message="Processing COR document: ${header.CamelFileName}"/>
+        
+        <!-- Extract text with Tika -->
+        <setHeader name="CamelHttpMethod">
+            <constant>PUT</constant>
+        </setHeader>
+        <setHeader name="Content-Type">
+            <constant>application/octet-stream</constant>
+        </setHeader>
+        <to uri="http://tika:9998/tika"/>
+        
+        <!-- Store extracted text -->
+        <setHeader name="extractedText">
+            <simple>${body}</simple>
+        </setHeader>
+        
+        <!-- LLM Analysis for COR compliance -->
+        <setBody>
+            <simple>{
+                "model": "llama2:13b",
+                "prompt": "Analyze this Certificate of Conformity (COR) document. Extract key information and check for compliance issues:\n\n${header.extractedText}\n\nProvide analysis in JSON format:\n{\n  \"certificate_number\": \"\",\n  \"issuing_authority\": \"\",\n  \"product_name\": \"\",\n  \"standards_compliance\": [],\n  \"validity_start\": \"\",\n  \"validity_end\": \"\",\n  \"compliance_status\": \"COMPLIANT|NON_COMPLIANT|UNCLEAR\",\n  \"issues_found\": [],\n  \"confidence_score\": 0.95,\n  \"requires_review\": false\n}",
+                "stream": false
+            }</simple>
+        </setHeader>
+        
+        <setHeader name="Content-Type">
+            <constant>application/json</constant>
+        </setHeader>
+        <to uri="http://ollama:11434/api/generate"/>
+        
+        <!-- Parse LLM response -->
+        <to uri="direct:parse-llm-response"/>
+        
+        <!-- Store results in Elasticsearch -->
+        <to uri="direct:store-document-analysis"/>
+        
+        <!-- Check for compliance issues -->
+        <choice>
+            <when>
+                <jsonpath>$.compliance_status != 'COMPLIANT'</jsonpath>
+                <to uri="direct:compliance-alert"/>
+            </when>
+        </choice>
+    </route>
+    
+    <!-- Invoice Processing Route -->
+    <route id="invoice-processing">
+        <from uri="direct:process-invoice"/>
+        
+        <log message="Processing Invoice: ${header.CamelFileName}"/>
+        
+        <!-- Extract text with Tika -->
+        <setHeader name="CamelHttpMethod">
+            <constant>PUT</constant>
+        </setHeader>
+        <to uri="http://tika:9998/tika"/>
+        
+        <setHeader name="extractedText">
+            <simple>${body}</simple>
+        </setHeader>
+        
+        <!-- LLM Analysis for invoice data -->
+        <setBody>
+            <simple>{
+                "model": "llama2:13b",
+                "prompt": "Extract structured data from this invoice:\n\n${header.extractedText}\n\nReturn JSON:\n{\n  \"invoice_number\": \"\",\n  \"date\": \"\",\n  \"due_date\": \"\",\n  \"supplier_name\": \"\",\n  \"supplier_address\": \"\",\n  \"total_amount\": 0.0,\n  \"currency\": \"\",\n  \"tax_amount\": 0.0,\n  \"line_items\": [],\n  \"payment_terms\": \"\",\n  \"validation_status\": \"VALID|INVALID|NEEDS_REVIEW\",\n  \"anomalies\": [],\n  \"confidence_score\": 0.95\n}",
+                "stream": false
+            }</simple>
+        </setHeader>
+        
+        <to uri="http://ollama:11434/api/generate"/>
+        <to uri="direct:parse-llm-response"/>
+        
+        <!-- Check for high-value invoices -->
+        <choice>
+            <when>
+                <jsonpath>$.total_amount > 10000</jsonpath>
+                <to uri="direct:high-value-alert"/>
+            </when>
+        </choice>
+        
+        <to uri="direct:store-document-analysis"/>
+    </route>
+    
+    <!-- Contract Processing Route -->
+    <route id="contract-processing">
+        <from uri="direct:process-contract"/>
+        
+        <log message="Processing Contract: ${header.CamelFileName}"/>
+        
+        <setHeader name="CamelHttpMethod">
+            <constant>PUT</constant>
+        </setHeader>
+        <to uri="http://tika:9998/tika"/>
+        
+        <setHeader name="extractedText">
+            <simple>${body}</simple>
+        </setHeader>
+        
+        <!-- LLM Analysis for contract risk assessment -->
+        <setBody>
+            <simple>{
+                "model": "llama2:13b",
+                "prompt": "Analyze this contract for key terms and potential risks:\n\n${header.extractedText}\n\nProvide analysis in JSON:\n{\n  \"contract_type\": \"\",\n  \"parties\": [],\n  \"effective_date\": \"\",\n  \"expiration_date\": \"\",\n  \"contract_value\": 0.0,\n  \"key_terms\": [],\n  \"risk_factors\": [],\n  \"risk_level\": \"LOW|MEDIUM|HIGH\",\n  \"compliance_requirements\": [],\n  \"action_items\": [],\n  \"confidence_score\": 0.95\n}",
+                "stream": false
+            }</simple>
+        </setHeader>
+        
+        <to uri="http://ollama:11434/api/generate"/>
+        <to uri="direct:parse-llm-response"/>
+        
+        <!-- Check for high-risk contracts -->
+        <choice>
+            <when>
+                <jsonpath>$.risk_level == 'HIGH'</jsonpath>
+                <to uri="direct:risk-alert"/>
+            </when>
+        </choice>
+        
+        <to uri="direct:store-document-analysis"/>
+    </route>
+    
+    <!-- Generic Document Processing -->
+    <route id="generic-processing">
+        <from uri="direct:process-generic"/>
+        
+        <log message="Processing Generic Document: ${header.CamelFileName}"/>
+        
+        <to uri="http://tika:9998/tika"/>
+        
+        <setHeader name="extractedText">
+            <simple>${body}</simple>
+        </setHeader>
+        
+        <!-- Basic LLM analysis -->
+        <setBody>
+            <simple>{
+                "model": "llama2:13b",
+                "prompt": "Analyze this document and categorize it:\n\n${header.extractedText}\n\nProvide analysis in JSON:\n{\n  \"document_category\": \"\",\n  \"key_topics\": [],\n  \"summary\": \"\",\n  \"language\": \"\",\n  \"confidence_score\": 0.95\n}",
+                "stream": false
+            }</simple>
+        </setHeader>
+        
+        <to uri="http://ollama:11434/api/generate"/>
+        <to uri="direct:parse-llm-response"/>
+        <to uri="direct:store-document-analysis"/>
+    </route>
+    
+    <!-- Utility Routes -->
+    <route id="parse-llm-response">
+        <from uri="direct:parse-llm-response"/>
+        
+        <log message="Parsing LLM response"/>
+        
+        <!-- Extract JSON from LLM response -->
+        <setBody>
+            <jsonpath>$.response</jsonpath>
+        </setBody>
+        
+        <!-- Store analysis results -->
+        <setHeader name="analysisResults">
+            <simple>${body}</simple>
+        </setHeader>
+    </route>
+    
+    <route id="store-document-analysis">
+        <from uri="direct:store-document-analysis"/>
+        
+        <log message="Storing document analysis in Elasticsearch"/>
+        
+        <!-- Prepare Elasticsearch document -->
+        <setBody>
+            <simple>{
+                "filename": "${header.CamelFileName}",
+                "document_type": "${header.documentType}",
+                "processing_timestamp": "${date:now:yyyy-MM-dd'T'HH:mm:ss.SSSZ}",
+                "extracted_text": "${header.extractedText}",
+                "analysis_results": ${header.analysisResults},
+                "file_size": ${header.CamelFileLength},
+                "content_type": "${header.Content-Type}"
+            }</simple>
+        </setHeader>
+        
+        <to uri="elasticsearch://documents?operation=Index&amp;indexName=documents"/>
+    </route>
+    
+    <!-- Alert Routes -->
+    <route id="compliance-alert">
+        <from uri="direct:compliance-alert"/>
+        
+        <log message="COMPLIANCE ALERT for document: ${header.CamelFileName}"/>
+        
+        <setBody>
+            <simple>{
+                "alert_type": "COMPLIANCE_ISSUE",
+                "document": "${header.CamelFileName}",
+                "timestamp": "${date:now:yyyy-MM-dd'T'HH:mm:ss.SSSZ}",
+                "severity": "HIGH",
+                "message": "Compliance issues detected in ${header.documentType} document",
+                "analysis": ${header.analysisResults}
+            }</simple>
+        </setHeader>
+        
+        <to uri="elasticsearch://compliance-alerts?operation=Index&amp;indexName=alerts"/>
+        
+        <!-- Send Slack notification if configured -->
+        <choice>
+            <when>
+                <simple>${properties:slack.webhook.url} != ''</simple>
+                <to uri="direct:slack-notification"/>
+            </when>
+        </choice>
+    </route>
+    
+    <route id="high-value-alert">
+        <from uri="direct:high-value-alert"/>
+        
+        <log message="HIGH VALUE INVOICE ALERT: ${header.CamelFileName}"/>
+        
+        <setBody>
+            <simple>{
+                "alert_type": "HIGH_VALUE_INVOICE",
+                "document": "${header.CamelFileName}",
+                "timestamp": "${date:now:yyyy-MM-dd'T'HH:mm:ss.SSSZ}",
+                "severity": "MEDIUM",
+                "message": "High-value invoice requires approval",
+                "analysis": ${header.analysisResults}
+            }</simple>
+        </setHeader>
+        
+        <to uri="elasticsearch://compliance-alerts?operation=Index&amp;indexName=alerts"/>
+    </route>
+    
+    <route id="risk-alert">
+        <from uri="direct:risk-alert"/>
+        
+        <log message="CONTRACT RISK ALERT: ${header.CamelFileName}"/>
+        
+        <setBody>
+            <simple>{
+                "alert_type": "CONTRACT_RISK",
+                "document": "${header.CamelFileName}",
+                "timestamp": "${date:now:yyyy-MM-dd'T'HH:mm:ss.SSSZ}",
+                "severity": "HIGH",
+                "message": "High-risk contract detected",
+                "analysis": ${header.analysisResults}
+            }</simple>
+        </setBody>
+        
+        <to uri="elasticsearch://compliance-alerts?operation=Index&amp;indexName=alerts"/>
+    </route>
+    
+    <route id="slack-notification">
+        <from uri="direct:slack-notification"/>
+        
+        <setBody>
+            <simple>{
+                "text": "🚨 Document Processing Alert",
+                "attachments": [{
+                    "color": "danger",
+                    "fields": [{
+                        "title": "Document",
+                        "value": "${header.CamelFileName}",
+                        "short": true
+                    }, {
+                        "title": "Type", 
+                        "value": "${header.documentType}",
+                        "short": true
+                    }, {
+                        "title": "Issue",
+                        "value": "${jsonpath($.message)}",
+                        "short": false
+                    }]
+                }]
+            }</simple>
+        </setBody>
+        
+        <setHeader name="Content-Type">
+            <constant>application/json</constant>
+        </setHeader>
+        
+        <to uri="http://slack-webhook"/>
+    </route>
+    
+</routes>

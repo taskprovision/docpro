@@ -1,0 +1,56 @@
+{
+  "template_name": "Invoice Analysis Template",
+  "document_type": "Invoice",
+  "analysis_criteria": {
+    "required_fields": [
+      "invoice_number",
+      "invoice_date",
+      "supplier_name",
+      "total_amount",
+      "currency",
+      "due_date",
+      "line_items"
+    ],
+    "validation_rules": [
+      {
+        "field": "total_amount",
+        "validation": "numeric_range",
+        "min_value": 0,
+        "max_value": 1000000,
+        "severity": "HIGH",
+        "message": "Invalid invoice amount"
+      },
+      {
+        "field": "due_date",
+        "validation": "future_date",
+        "max_days_future": 90,
+        "severity": "MEDIUM",
+        "message": "Due date too far in future"
+      }
+    ],
+    "approval_thresholds": [
+      {
+        "amount_eur": 1000,
+        "approver_level": "team_lead",
+        "approval_time_hours": 24
+      },
+      {
+        "amount_eur": 10000,
+        "approver_level": "manager",
+        "approval_time_hours": 48
+      },
+      {
+        "amount_eur": 50000,
+        "approver_level": "director",
+        "approval_time_hours": 72
+      }
+    ]
+  },
+  "fraud_indicators": [
+    "duplicate_invoice_number",
+    "unusual_payment_terms",
+    "new_supplier_high_amount",
+    "weekend_invoice_date",
+    "suspicious_bank_details"
+  ]
+}
