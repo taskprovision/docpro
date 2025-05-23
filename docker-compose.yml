@@ -7,7 +7,7 @@ services:
     container_name: doc-elasticsearch
     restart: unless-stopped
     ports:
-      - "9200:9200"
+      - "${ELASTICSEARCH_HTTP_PORT:-9200}:9200"
     environment:
       - discovery.type=single-node
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
@@ -23,7 +23,7 @@ services:
     container_name: doc-kibana
     restart: unless-stopped
     ports:
-      - "5601:5601"
+      - "${KIBANA_PORT:-5601}:5601"
     environment:
       - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
     depends_on:
@@ -37,7 +37,7 @@ services:
     container_name: doc-tika
     restart: unless-stopped
     ports:
-      - "9998:9998"
+      - "${TIKA_PORT:-9998}:9998"
     networks:
       - doc-net
 
@@ -47,7 +47,7 @@ services:
     container_name: doc-ocr
     restart: unless-stopped
     ports:
-      - "8081:8080"
+      - "${OCR_PORT:-8081}:8080"
     networks:
       - doc-net
 
@@ -57,7 +57,7 @@ services:
     container_name: doc-ollama
     restart: unless-stopped
     ports:
-      - "11434:11434"
+      - "${OLLAMA_PORT:-11434}:11434"
     volumes:
       - ./data/ollama:/root/.ollama
     environment:
@@ -71,13 +71,13 @@ services:
     container_name: doc-minio
     restart: unless-stopped
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "${MINIO_API_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
     volumes:
       - ./data/minio:/data
     environment:
-      - MINIO_ROOT_USER=minioadmin
-      - MINIO_ROOT_PASSWORD=minioadmin123
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
     command: server /data --console-address ":9001"
     networks:
       - doc-net
@@ -88,7 +88,7 @@ services:
     container_name: doc-node-red
     restart: unless-stopped
     ports:
-      - "1880:1880"
+      - "${NODE_RED_PORT:-1880}:1880"
     volumes:
       - ./data/node-red:/data
       - ./data/input:/input
@@ -109,7 +109,7 @@ services:
     container_name: doc-redis
     restart: unless-stopped
     ports:
-      - "6379:6379"
+      - "${REDIS_PORT:-6379}:6379"
     networks:
       - doc-net
 
