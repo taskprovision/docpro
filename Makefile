@@ -29,18 +29,34 @@ install: .env ## Install project dependencies
 
 ## Start all services
 dev: .env ## Start all services in development mode
-	@echo "${GREEN}🚀 Starting DocPro in development mode...${RESET}
-${YELLOW}Access services at:${RESET}
+	@echo "${GREEN}🚀 Starting DocPro in development mode...${RESET}"
+	docker-compose up -d --remove-orphans
+	@echo "${YELLOW}Access services at:${RESET}
 - MinIO: http://localhost:9001 (minioadmin/minioadmin)\n- Elasticsearch: http://localhost:9200\n- Kibana: http://localhost:5601${RESET}"
-	docker-compose up -d
 
 ## Stop all services
-stop: ## Stop all services
-	@echo "${YELLOW}🛑 Stopping all services...${RESET}"
-	docker-compose down
+stop: ## Force stop all services and remove containers
+	@echo "${YELLOW}🛑 Force stopping all services...${RESET}"
+	@if [ -n "$(shell docker-compose ps -q 2>/dev/null)" ]; then \
+		docker-compose down --remove-orphans --timeout 2 || true; \
+	fi
+	@echo "${YELLOW}Killing any remaining processes...${RESET}"
+	@for port in 9001 9200 5601 9998; do \
+		echo "Checking port $$port..."; \
+		pid=$$(lsof -ti :$$port || echo ''); \
+		if [ -n "$$pid" ]; then \
+			echo "Killing process on port $$port (PID: $$pid)"; \
+			kill -9 $$pid 2>/dev/null || true; \
+		done; \
+	done
 
 ## Restart all services
-restart: stop dev ## Restart all services
+restart: ## Force restart all services
+	@echo "${YELLOW}🔄 Force restarting all services...${RESET}"
+	@$(MAKE) stop
+	@echo "${GREEN}Starting services...${RESET}"
+	@$(MAKE) dev
+	@echo "${GREEN}✅ All services restarted${RESET}"
 
 ## Show services status
 status: ## Show services status
@@ -52,9 +68,13 @@ logs: ## Show services logs (follow mode)
 	docker-compose logs -f
 
 ## Clean up all containers, networks, and volumes
-clean: ## Clean up all containers, networks, and volumes
-	@echo "${YELLOW}🧹 Cleaning up...${RESET}"
-	docker-compose down -v --remove-orphans
+clean: ## Force clean up all containers, networks, and volumes
+	@echo "${YELLOW}🧹 Force cleaning up all resources...${RESET}"
+	@if [ -n "$(shell docker-compose ps -q 2>/dev/null)" ]; then \
+		docker-compose down -v --remove-orphans --rmi all --timeout 2 || true; \
+	fi
+	@echo "${YELLOW}Removing unused containers, networks, and volumes...${RESET}"
+	@docker system prune -f
 	@echo "${GREEN}✅ Clean complete!${RESET}"
 
 ## Run tests
